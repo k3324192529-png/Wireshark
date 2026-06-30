@@ -4,7 +4,7 @@
             "name": "Win32",
             "includePath": [
                 "${workspaceFolder}/**",
-                "E:/npcap/npcap-sdk-1.16/Include"  
+                "E:/npcap/Include"  
             ],
             "defines": [
                 "_DEBUG",

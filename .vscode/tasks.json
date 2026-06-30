@@ -10,12 +10,11 @@
                 "${file}",
                 "-o",
                 "${fileDirname}\\${fileBasenameNoExtension}.exe",
-                
-                // --- 修正后的 Npcap SDK 路径 ---
-                "-I", "E:/npcap/npcap-sdk-1.16/Include",      
-                "-L", "E:/npcap/npcap-sdk-1.16/Lib/x64",      
+                "-I", "E:/npcap/Include",      
+                "-L", "E:/npcap/Lib/x64",      
                 "-lwpcap",                         
-                "-lPacket"                         
+                "-lPacket",
+                "-lws2_32" // ➔ 💡 就是在这里，加上这一行链接 Windows 套接字库
             ],
             "options": {
                 "cwd": "E:/mingw64/bin"
