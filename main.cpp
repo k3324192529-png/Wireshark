@@ -3,50 +3,11 @@
 #include <iomanip>
 #define HAVE_REMOTE
 #include <pcap.h>
+#include "include/ProtocolParser.h" 
 
-// 1. 【核心数据结构】定义以太网帧头结构体（必须强制 1 字节对齐，完美匹配底层硬件报文）
-#pragma pack(push, 1)
-struct EthernetHeader {
-    uint8_t dest_mac[6];   // 目的 MAC 地址
-    uint8_t src_mac[6];    // 源 MAC 地址
-    uint16_t type;         // 上层协议类型 (网络字节序，大端)
-};
-#pragma pack(pop)
-
-// 2. 【核心回调函数】每当 Npcap 驱动在网卡上抓到一个包，就会自动“拍”一下这个函数
 void packet_handler(u_char *param, const struct pcap_pkthdr *header, const u_char *pkt_data) {
-    std::cout << "\n------------------------------------------------------------" << std::endl;
-    std::cout << "[捕获到原始报文] 时间戳: " << header->ts.tv_sec << "s | 捕获长度: " << header->len << " 字节" << std::endl;
-
-    // 边界安全检查：确保抓到的数据至少大于一个以太网头部的长度
-    if (header->len >= sizeof(EthernetHeader)) {
-        // 利用 C++ 的 reinterpret_cast，直接把裸字节流指针强转为结构体指针（零拷贝，极致性能）
-        const EthernetHeader* eth = reinterpret_cast<const EthernetHeader*>(pkt_data);
-        
-        // 打印源 MAC 地址 (格式化为经典的 XX:XX:XX:XX:XX:XX)
-        std::cout << "  [链路层] 源  MAC: ";
-        for(int i = 0; i < 6; ++i) {
-            std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)eth->src_mac[i] << (i == 5 ? "" : ":");
-        }
-        
-        // 打印目的 MAC 地址
-        std::cout << "\n  [链路层] 目的 MAC: ";
-        for(int i = 0; i < 6; ++i) {
-            std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)eth->dest_mac[i] << (i == 5 ? "" : ":");
-        }
-        
-        // 核心卡点：网络传输用的是“大端序”，而 Intel/AMD 电脑是“小端序”。
-        // 必须用 ntohs() 函数把网络字节序转为主机字节序，否则读取到的协议号是反的！
-        // 自己手动交换高低字节，完美替代 ntohs() 且不依赖任何底层套接字库
-        uint16_t eth_type = (eth->type << 8) | (eth->type >> 8);
-        std::cout << std::dec << "\n  [链路层] 上层协议号: 0x" << std::hex << eth_type;
-        
-        // 根据协议号进行分流解析判断
-        if (eth_type == 0x0800) std::cout << " -> (IPv4 协议 -> 准备移交网络层解析)";
-        else if (eth_type == 0x0806) std::cout << " -> (ARP 协议)";
-        else if (eth_type == 0x86dd) std::cout << " -> (IPv6 协议)";
-        std::cout << std::dec << std::endl;
-    }
+    // 直接委托给 ProtocolParser 进行逐层解析
+    ProtocolParser::parse(header, pkt_data);
 }
 
 int main() {

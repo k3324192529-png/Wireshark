@@ -7,17 +7,21 @@
             "args": [
                 "-fdiagnostics-color=always",
                 "-g",
-                "${file}",
+                "main.cpp",
+                "src/ProtocolParser.cpp",
+                "src/PcapDumper.cpp",
+                "src/PacketStats.cpp",
+                "src/SnifferEngine.cpp",
                 "-o",
-                "${fileDirname}\\${fileBasenameNoExtension}.exe",
-                "-I", "E:/npcap/Include",      
-                "-L", "E:/npcap/Lib/x64",      
-                "-lwpcap",                         
+                "${workspaceFolder}\\main.exe",
+                "-I", "E:/npcap/Include",
+                "-L", "E:/npcap/Lib/x64",
+                "-lwpcap",
                 "-lPacket",
-                "-lws2_32" // ➔ 💡 就是在这里，加上这一行链接 Windows 套接字库
+                "-lws2_32"
             ],
             "options": {
-                "cwd": "E:/mingw64/bin"
+                "cwd": "${workspaceFolder}"
             },
             "problemMatcher": [
                 "$gcc"
