@@ -48,7 +48,7 @@ int main() {
     // 3. 【打开网卡】利用 pcap_open 开启混杂模式（Promiscuous Mode），可以捕获通过该网卡的所有流量
     pcap_t *adhandle = pcap_open(dev_list[choice - 1]->name, 
                                  65536,                        // 捕获每个包的最大字节数
-                                 0,    // 关闭混杂模式
+                                 PCAP_OPENFLAG_PROMISCUOUS,    // 打开混杂模式
                                  1000,                         // 读取超时时间为 1000ms
                                  NULL, errbuf);
 
