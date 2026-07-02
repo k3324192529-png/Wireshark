@@ -19,6 +19,12 @@ static const char* getProtoName(int type) {
     }
 }
 
+//  ip地址截断辅助函数
+static std::string formatIP(const std::string& ip, size_t max_len = 30) {
+    if (ip.length() <= max_len) return ip;
+    return ip.substr(0, max_len - 3) + "...";
+}
+
 /**
  * PacketStats类的构造函数
  * 初始化数据包统计相关的成员变量
@@ -51,9 +57,9 @@ void PacketStats::updateProtocol(int proto_type, uint32_t length) {
     proto_map[proto_type].second += length; // 字节数累加
 
     // 优化体验：每抓到 150 个包自动刷新一次屏幕，防止频繁清屏导致终端闪烁
-    // if (total_packets % 150 == 0) {
-    //     refreshScreen();
-    // }
+    if (total_packets % 150 == 0) {
+        refreshScreen();
+    }
 }
 
 /**
@@ -87,8 +93,9 @@ void PacketStats::refreshScreen() {
 
     // 执行 Windows 终端清屏命令
     system("cls");
+    std::cout << std::setfill(' ') << std::right << std::dec;  // 防御性重置
 
-        std::cout << "==========================================================================" << std::endl;
+    std::cout << "==========================================================================" << std::endl;
     std::cout << "                📊  实时网络流量监控与统计看板                 " << std::endl;
     std::cout << "==========================================================================" << std::endl;
     std::cout << " [系统运行时间]: " << total_duration << " 秒 "
@@ -124,14 +131,29 @@ void PacketStats::refreshScreen() {
     });
 
     int count = 0;
-    std::cout << "   排名    源 IP 地址               发包数量      总数据量(Bytes)" << std::endl;
+    // std::cout << "   排名    源 IP 地址               发包数量      总数据量(Bytes)" << std::endl;
+    // for (auto const& item : ip_list) {
+    //     if (++count > 5) break;
+    //     std::cout << "   " << std::left << std::setw(7) << ("#" + std::to_string(count))
+    //               << std::setw(24) << item.first
+    //               << std::setw(14) << item.second.first
+    //               << item.second.second << std::endl;
+    // }
+
+    // 表头也统一用 setw，确保对齐一致
+    std::cout << "   " << std::left << std::setw(6) << "排名"
+            << std::setw(32) << "源 IP 地址"
+            << std::right << std::setw(12) << "发包数量"
+            << std::setw(18) << "总数据量(Bytes)" << std::endl;
+
     for (auto const& item : ip_list) {
         if (++count > 5) break;
-        std::cout << "   " << std::left << std::setw(7) << ("#" + std::to_string(count))
-                  << std::setw(24) << item.first
-                  << std::setw(14) << item.second.first
-                  << item.second.second << std::endl;
+        std::cout << "   " << std::left  << std::setw(6) << ("#" + std::to_string(count))
+                << std::setw(32) << formatIP(item.first, 31)
+                << std::right << std::setw(12) << item.second.first
+                << std::setw(18) << item.second.second << std::endl;
     }
+
     std::cout << "==========================================================================" << std::endl;
 
 }
