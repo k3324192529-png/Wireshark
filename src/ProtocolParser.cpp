@@ -6,6 +6,7 @@
 
 // ------------------------------------------------------------
 // 与同学C的统计接口（外部声明，待同学C实现）
+// 同学B在解析到各层时调用这些函数投喂数据
 // ------------------------------------------------------------
 extern void update_stats_by_protocol(int proto_type, uint32_t length, const std::string& src_ip);
 extern void update_stats_by_ip(const std::string& src_ip, uint32_t length);
@@ -21,6 +22,19 @@ enum ProtoType {
     PROTO_DNS  = 7,
     PROTO_HTTP = 8
 };
+
+// ICMP类型名称映射（可选增强）
+static const char* icmpTypeName(uint8_t type) {
+    switch(type) {
+        case 0:  return "Echo Reply";
+        case 3:  return "Destination Unreachable";
+        case 4:  return "Source Quench";
+        case 5:  return "Redirect";
+        case 8:  return "Echo Request";
+        case 11: return "Time Exceeded";
+        default: return "Unknown";
+    }
+}
 
 // ------------------------------------------------------------
 // 统一入口
@@ -50,7 +64,7 @@ void ProtocolParser::parseEthernet(const u_char* data, uint32_t len) {
     const EthernetHeader* eth = reinterpret_cast<const EthernetHeader*>(data);
     uint16_t eth_type = ntoh16(eth->type);  // 转为本地字节序
 
-    // 打印链路层信息（便于调试，后续可改为日志）
+    // 打印链路层信息（便于调试）
     std::cout << "[链路层] ";
     printMac(eth->src_mac);
     std::cout << " -> ";
@@ -69,7 +83,8 @@ void ProtocolParser::parseEthernet(const u_char* data, uint32_t len) {
             parseIPv6(next_data, remaining);
             break;
         case 0x0806:  // ARP
-            // 可调用统计接口：update_stats_by_protocol(PROTO_ARP, len, "");
+            // 可调用统计接口通知同学C
+            // update_stats_by_protocol(PROTO_ARP, len, "");
             break;
         default:
             // 其他协议（如VLAN、MPLS等）暂不处理
@@ -106,7 +121,7 @@ void ProtocolParser::parseIPv4(const u_char* data, uint32_t len) {
     std::cout << "[网络层] IPv4  " << src_str << " -> " << dest_str
               << "  协议: " << (int)protocol << std::endl;
 
-    // 调用统计接口（待同学C实现）
+    // 统计IPv4
     // update_stats_by_protocol(PROTO_IPv4, total_len, src_str);
 
     // 检查整个IP包长度是否大于捕获长度
@@ -255,6 +270,7 @@ void ProtocolParser::parseICMP(const u_char* data, uint32_t len) {
 
     const ICMPHeader* icmp = reinterpret_cast<const ICMPHeader*>(data);
     std::cout << "[网络控制] ICMP  类型: " << (int)icmp->type
+              << " (" << icmpTypeName(icmp->type) << ")"
               << "  代码: " << (int)icmp->code << std::endl;
 
     // update_stats_by_protocol(PROTO_ICMP, 0, "");
