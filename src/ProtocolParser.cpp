@@ -40,7 +40,6 @@ static const char* icmpTypeName(uint8_t type) {
 // 统一入口
 // ------------------------------------------------------------
 void ProtocolParser::parse(const struct pcap_pkthdr* header, const u_char* pkt_data) {
-    
     uint32_t caplen = header->caplen;   // 实际捕获的字节数
 
     // 检查是否足以包含以太网头
@@ -124,6 +123,8 @@ void ProtocolParser::parseIPv4(const u_char* data, uint32_t len) {
 
     // 统计IPv4
     update_stats_by_protocol(PROTO_IPv4, total_len, src_str);
+    update_stats_by_ip(src_str, total_len); // 统计IP流量
+
 
     // 检查整个IP包长度是否大于捕获长度
     if (total_len > len) {
@@ -178,6 +179,7 @@ void ProtocolParser::parseIPv6(const u_char* data, uint32_t len) {
               << "  下一头部: " << (int)next_header << std::endl;
 
     update_stats_by_protocol(PROTO_IPv6, 0, src_str);
+    update_stats_by_ip(src_str, 0); // 统计IP流量
 
     const u_char* next_data = data + sizeof(IPv6Header);
     uint32_t remaining = len - sizeof(IPv6Header);
@@ -349,5 +351,5 @@ void ProtocolParser::printMac(const uint8_t* mac) {
     for (int i = 1; i < 6; ++i) {
         std::cout << ':' << std::setw(2) << std::setfill('0') << (int)mac[i];
     }
-    std::cout << std::dec;
+    std::cout << std::dec << std::setfill(' ');
 }
