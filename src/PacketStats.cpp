@@ -98,32 +98,31 @@ void PacketStats::refreshScreen() {
     last_total_bytes = total_bytes;
     last_refresh_time = now;
 
-    // ========================================================================
-    // 完美保留你最喜欢的传统强力清屏
-    // ========================================================================
+    // 保留原本的强力清屏
     system("cls");
     std::cout << std::setfill(' ') << std::right << std::dec;  // 防御性重置
 
-    std::cout << "==========================================================================" << std::endl;
-    std::cout << "                📊  实时网络流量监控与统计看板                 " << std::endl;
-    std::cout << "==========================================================================" << std::endl;
-    std::cout << " [系统运行时间]: " << total_duration << " 秒 "
-              << " | [总捕获包数]: " << total_packets << " 个"
-              << " | [总吞吐量]: " << std::fixed << std::setprecision(2) << (total_bytes / 1024.0 / 1024.0) << " MB" << std::endl;
-    std::cout << " [实时网速]:     " << std::fixed << std::setprecision(2) << speed << " KB/s" << std::endl;
-    std::cout << "--------------------------------------------------------------------------" << std::endl;
+    // 🌟 拓宽至 115 字符，完美匹配下面的 Wireshark 宽度
+    std::cout << "===================================================================================================================" << std::endl;
+    std::cout << "                                     📊  实时网络流量监控与统计看板                                     " << std::endl;
+    std::cout << "===================================================================================================================" << std::endl;
+    std::cout << " [系统运行时间]: " << std::setw(4) << total_duration << " 秒 "
+              << " | [总捕获包数]: " << std::setw(6) << total_packets << " 个"
+              << " | [总吞吐量]: " << std::fixed << std::setprecision(2) << std::setw(6) << (total_bytes / 1024.0 / 1024.0) << " MB"
+              << " | [实时网速]: " << std::fixed << std::setprecision(2) << std::setw(7) << speed << " KB/s" << std::endl;
+    std::cout << "-------------------------------------------------------------------------------------------------------------------" << std::endl;
 
-    // 1. 打印协议分布占比（带简易进度条）
+    // 1. 打印协议分布占比（将进度条拉长，让版面更饱满）
     std::cout << "\n [1. 协议分布统计]:" << std::endl;
     for (auto const& [proto, data] : proto_map) {
         double pct = (total_packets > 0) ? (static_cast<double>(data.first) / total_packets * 100.0) : 0.0;
-        int bar_width = static_cast<int>(pct / 5); // 每 5% 绘制一个 '='
+        int bar_width = static_cast<int>(pct / 2.5); // 拓宽进度条，最高绘制 40 个字符
         
-        std::cout << "  " << std::left << std::setw(6) << getProtoName(proto) << " ➔ "
-                  << "数量: " << std::setw(6) << data.first << " | 占比: " 
+        std::cout << "  " << std::left << std::setw(8) << getProtoName(proto) << " ➔ "
+                  << "数量: " << std::setw(8) << data.first << " | 占比: " 
                   << std::setw(6) << std::fixed << std::setprecision(1) << pct << "%  "
                   << "[";
-        for(int k=0; k<20; ++k) {
+        for(int k=0; k<40; ++k) {
             if(k < bar_width) std::cout << "=";
             else if(k == bar_width) std::cout << ">";
             else std::cout << ".";
@@ -131,30 +130,61 @@ void PacketStats::refreshScreen() {
         std::cout << "]" << std::endl;
     }
 
-    // 2. 打印发包 Top 5 IP 排行榜
+   // 2. 打印发包 Top 5 IP 排行榜（🌟 纯手工空格拼接，彻底无视编译流污染）
     std::cout << "\n [2. 活跃源 IP 排行榜 (Top 5)]:" << std::endl;
     std::vector<std::pair<std::string, std::pair<uint64_t, uint64_t>>> ip_list(ip_map.begin(), ip_map.end());
-    // 按发包数量降序排序
     std::sort(ip_list.begin(), ip_list.end(), [](const auto& a, const auto& b) {
         return a.second.first > b.second.first;
     });
 
-    int count = 0;
-    // 表头也统一用 setw，确保对齐一致
-    std::cout << "   " << std::left << std::setw(6) << "排名"
-            << std::setw(32) << "源 IP 地址"
-            << std::right << std::setw(12) << "发包数量"
-            << std::setw(18) << "总数据量(Bytes)" << std::endl;
+    // 🌟 手动用普通空格硬拉出来的表头
+    std::cout << "   排名    源 IP 地址                      发包数量            总数据量(Bytes)" << std::endl;
 
+    int count = 0;
     for (auto const& item : ip_list) {
         if (++count > 5) break;
-        std::cout << "   " << std::left  << std::setw(6) << ("#" + std::to_string(count))
-                << std::setw(32) << formatIP(item.first, 31)
-                << std::right << std::setw(12) << item.second.first
-                << std::setw(18) << item.second.second << std::endl;
+        
+        // 1. 准备好每一列的原始字符串数据
+        std::string rank_str = "#" + std::to_string(count);
+        std::string ip_str = item.first;
+        std::string pkts_str = std::to_string(item.second.first);
+        std::string bytes_str = std::to_string(item.second.second);
+
+        // 2. 纯手工计算需要补多少个空格（严格对齐每一列的左边缘起点）
+        std::string pad_rank  = (rank_str.length() < 8)   ? std::string(8 - rank_str.length(), ' ') : "";
+        std::string pad_ip    = (ip_str.length() < 32)    ? std::string(32 - ip_str.length(), ' ') : "";
+        std::string pad_pkts  = (pkts_str.length() < 20)  ? std::string(20 - pkts_str.length(), ' ') : "";
+
+        // 3. 一口气朴实无华地打印出来
+        std::cout << "   " 
+                  << rank_str  << pad_rank
+                  << ip_str    << pad_ip
+                  << pkts_str  << pad_pkts
+                  << bytes_str << std::endl;
     }
 
-    std::cout << "==========================================================================" << std::endl;
+    std::cout << "===================================================================================================================" << std::endl;
+
+    // 3. 在大盘最底下，把攒着的 Wireshark 流水画上去
+    extern const std::vector<std::string>& get_packet_logs();
+    const auto& logs = get_packet_logs();
+
+    if (!logs.empty()) {
+        std::cout << "\n 📦 [3. 实时抓包流水日志 (每10个包抽样滚动)]" << std::endl;
+        std::cout << std::left 
+                  << std::setw(8)  << "No." 
+                  << std::setw(12) << "Time" 
+                  << std::setw(20) << "Source" 
+                  << std::setw(20) << "Destination" 
+                  << std::setw(10) << "Protocol" 
+                  << std::setw(8)  << "Length" 
+                  << "Info" << std::endl;
+        std::cout << "-------------------------------------------------------------------------------------------------------------------" << std::endl;
+
+        for (const auto& log_line : logs) {
+            std::cout << log_line << std::endl;
+        }
+    }
 }
 
 // ------------------------------------------------------------
