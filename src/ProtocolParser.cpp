@@ -40,7 +40,6 @@ static const char* icmpTypeName(uint8_t type) {
 // 统一入口
 // ------------------------------------------------------------
 void ProtocolParser::parse(const struct pcap_pkthdr* header, const u_char* pkt_data) {
-    
     uint32_t caplen = header->caplen;   // 实际捕获的字节数
 
     // 检查是否足以包含以太网头
@@ -85,7 +84,7 @@ void ProtocolParser::parseEthernet(const u_char* data, uint32_t len) {
             break;
         case 0x0806:  // ARP
             // 可调用统计接口通知同学C
-            // update_stats_by_protocol(PROTO_ARP, len, "");
+            update_stats_by_protocol(PROTO_ARP, len, "");
             break;
         default:
             // 其他协议（如VLAN、MPLS等）暂不处理
@@ -123,7 +122,9 @@ void ProtocolParser::parseIPv4(const u_char* data, uint32_t len) {
               << "  协议: " << (int)protocol << std::endl;
 
     // 统计IPv4
-    // update_stats_by_protocol(PROTO_IPv4, total_len, src_str);
+    update_stats_by_protocol(PROTO_IPv4, total_len, src_str);
+    update_stats_by_ip(src_str, total_len); // 统计IP流量
+
 
     // 检查整个IP包长度是否大于捕获长度
     if (total_len > len) {
@@ -144,15 +145,15 @@ void ProtocolParser::parseIPv4(const u_char* data, uint32_t len) {
     switch (protocol) {
         case 6:   // TCP
             parseTCP(next_data, remaining);
-            // update_stats_by_protocol(PROTO_TCP, 0, src_str);
+            update_stats_by_protocol(PROTO_TCP, 0, src_str);
             break;
         case 17:  // UDP
             parseUDP(next_data, remaining);
-            // update_stats_by_protocol(PROTO_UDP, 0, src_str);
+            update_stats_by_protocol(PROTO_UDP, 0, src_str);
             break;
         case 1:   // ICMP
             parseICMP(next_data, remaining);
-            // update_stats_by_protocol(PROTO_ICMP, 0, src_str);
+            update_stats_by_protocol(PROTO_ICMP, 0, src_str);
             break;
         default:
             // 其他协议（如IGMP、OSPF等）暂不解析
@@ -177,7 +178,8 @@ void ProtocolParser::parseIPv6(const u_char* data, uint32_t len) {
     std::cout << "[网络层] IPv6  " << src_str << " -> " << dest_str
               << "  下一头部: " << (int)next_header << std::endl;
 
-    // update_stats_by_protocol(PROTO_IPv6, 0, src_str);
+    update_stats_by_protocol(PROTO_IPv6, 0, src_str);
+    update_stats_by_ip(src_str, 0); // 统计IP流量
 
     const u_char* next_data = data + sizeof(IPv6Header);
     uint32_t remaining = len - sizeof(IPv6Header);
@@ -212,7 +214,7 @@ void ProtocolParser::parseTCP(const u_char* data, uint32_t len) {
     std::cout << "[传输层] TCP  " << src_port << " -> " << dest_port
               << "  标志: 0x" << std::hex << (int)tcp->flags << std::dec << std::endl;
 
-    // update_stats_by_protocol(PROTO_TCP, 0, "");
+    update_stats_by_protocol(PROTO_TCP, 0, "");
 
     if (len < data_offset) {
         std::cerr << "[Parser] TCP首部长度超出捕获长度。" << std::endl;
@@ -249,7 +251,7 @@ void ProtocolParser::parseUDP(const u_char* data, uint32_t len) {
     std::cout << "[传输层] UDP  " << src_port << " -> " << dest_port
               << "  长度: " << udp_len << std::endl;
 
-    // update_stats_by_protocol(PROTO_UDP, udp_len, "");
+    update_stats_by_protocol(PROTO_UDP, udp_len, "");
 
     const u_char* payload = data + sizeof(UDPHeader);
     uint32_t payload_len = len - sizeof(UDPHeader);
@@ -274,7 +276,7 @@ void ProtocolParser::parseICMP(const u_char* data, uint32_t len) {
               << " (" << icmpTypeName(icmp->type) << ")"
               << "  代码: " << (int)icmp->code << std::endl;
 
-    // update_stats_by_protocol(PROTO_ICMP, 0, "");
+    update_stats_by_protocol(PROTO_ICMP, 0, "");
 }
 
 // ------------------------------------------------------------
@@ -295,7 +297,7 @@ void ProtocolParser::parseDNS(const u_char* data, uint32_t len) {
               << "  问题数: " << qdcount
               << "  回答数: " << ancount << std::endl;
 
-    // update_stats_by_protocol(PROTO_DNS, 0, "");
+    update_stats_by_protocol(PROTO_DNS, 0, "");
 }
 
 // ------------------------------------------------------------
@@ -315,7 +317,7 @@ void ProtocolParser::parseHTTP(const u_char* data, uint32_t len) {
     }
     std::cout << std::endl;
 
-    // update_stats_by_protocol(PROTO_HTTP, 0, "");
+    update_stats_by_protocol(PROTO_HTTP, 0, "");
 }
 
 // ------------------------------------------------------------
@@ -349,5 +351,5 @@ void ProtocolParser::printMac(const uint8_t* mac) {
     for (int i = 1; i < 6; ++i) {
         std::cout << ':' << std::setw(2) << std::setfill('0') << (int)mac[i];
     }
-    std::cout << std::dec;
+    std::cout << std::dec << std::setfill(' ');
 }

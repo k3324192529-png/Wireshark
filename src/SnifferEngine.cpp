@@ -2,6 +2,8 @@
 #include "../include/ProtocolParser.h"
 #include <iostream>
 
+extern void update_stats_by_protocol(int proto_type, uint32_t length, const std::string& src_ip);
+
 PcapDumper SnifferEngine::dumperModule;
 
 SnifferEngine::SnifferEngine() : alldevs(nullptr), adhandle(nullptr) {}
@@ -32,7 +34,7 @@ void SnifferEngine::showDevices() {
 bool SnifferEngine::startSniffing(int choice, const std::string& filterExpr) {
     if (choice < 1 || choice > static_cast<int>(devList.size())) return false;
 
-    adhandle = pcap_open(devList[choice - 1]->name, 65536, PCAP_OPENFLAG_PROMISCUOUS, 50, NULL, errbuf);
+    adhandle = pcap_open(devList[choice - 1]->name, 65536, PCAP_OPENFLAG_PROMISCUOUS, 10, NULL, errbuf);
     if (!adhandle) return false;
 
     // 绑定 BPF 过滤器
@@ -47,10 +49,39 @@ bool SnifferEngine::startSniffing(int choice, const std::string& filterExpr) {
     }
 
     // 开启文件存储
-    dumperModule.open(adhandle, "traffic.pcap");
+   dumperModule.open(adhandle, "traffic.pcap");
     std::cout << "\n[OK] 混杂模式引擎启动成功... (Ctrl+C 退出)\n" << std::endl;
 
-    pcap_loop(adhandle, 0, SnifferEngine::packetCallback, nullptr);
+    // ========================================================================
+    // 🌟 终极修改：干掉死等的 pcap_loop，改用自主控制的主动轮询循环
+    // ========================================================================
+    int res;
+    struct pcap_pkthdr* header;
+    const u_char* pkt_data;
+
+    // 只要没有手动关闭句柄，循环就永远在线
+    while (adhandle != nullptr) {
+        // pcap_next_ex 是非阻塞/超时返回的：
+        // 如果抓到包返回 1；如果超时（50ms内没符合过滤规则的包）返回 0
+        res = pcap_next_ex(adhandle, &header, &pkt_data);
+
+        if (res == 1) {
+            // 抓到了符合过滤规则的包，正常触发回调逻辑
+            packetCallback(nullptr, header, pkt_data);
+        }
+        else if (res == 0) {
+            // 核心关键：此时网络上没有符合规则的包！超时返回了。
+            // 即使没包，我们也必须主动去“捅”一下同学 C 的统计单例，
+            // 询问它：“虽然没抓到包，但时间到 0.5 秒了吗？到了就赶紧给我强制清屏刷新！”
+            // 传 PROTO_IPv4(5) 和 0 字节，不会污染原本的数据。
+            update_stats_by_protocol(5, 0, "");
+        }
+        else if (res < 0) {
+            // 发生错误或者调用了 pcap_breakloop
+            break;
+        }
+    }
+
     return true;
 }
 
@@ -64,6 +95,6 @@ void SnifferEngine::stopSniffing() {
 }
 
 void SnifferEngine::packetCallback(u_char* user, const struct pcap_pkthdr* header, const u_char* pkt_data) {
-    dumperModule.dump(header, pkt_data);           // 1. 同学 A 的存储流
-    ProtocolParser::parse(header, pkt_data);       // 2. 同学 B 的解析流
+    dumperModule.dump(header, pkt_data);           // 存储流
+    ProtocolParser::parse(header, pkt_data);       // 解析流
 }
