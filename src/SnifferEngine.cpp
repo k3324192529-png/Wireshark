@@ -1,5 +1,6 @@
 #include "../include/SnifferEngine.h"
 #include "../include/ProtocolParser.h"
+#include "../include/PacketStats.h" 
 #include <iostream>
 
 extern void update_stats_by_protocol(int proto_type, uint32_t length, const std::string& src_ip);
@@ -74,7 +75,7 @@ bool SnifferEngine::startSniffing(int choice, const std::string& filterExpr) {
             // 即使没包，我们也必须主动去“捅”一下同学 C 的统计单例，
             // 询问它：“虽然没抓到包，但时间到 0.5 秒了吗？到了就赶紧给我强制清屏刷新！”
             // 传 PROTO_IPv4(5) 和 0 字节，不会污染原本的数据。
-            update_stats_by_protocol(5, 0, "");
+            PacketStats::getInstance().refreshScreen();
         }
         else if (res < 0) {
             // 发生错误或者调用了 pcap_breakloop

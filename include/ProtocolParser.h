@@ -4,6 +4,7 @@
 #include <pcap.h>
 #include <cstdint>
 #include <string>
+#include <vector> 
 
 /**
  * @brief 协议解析器（静态工具类）
@@ -147,5 +148,8 @@ struct DNSHeader {
 };
 
 #pragma pack(pop)
+
+// 获取日志队列（供大盘显示）
+const std::vector<std::string>& get_packet_logs();
 
 #endif // PROTOCOL_PARSER_H

@@ -4,29 +4,33 @@
 #include <sstream>
 #include <cstring>
 #include <chrono>
-#include <vector> // 🌟 引入 vector 容器
+#include <vector>
 
 extern void update_stats_by_protocol(int proto_type, uint32_t length, const std::string& src_ip);
 extern void update_stats_by_ip(const std::string& src_ip, uint32_t length);
 
+// 协议类型枚举（与同学C约定，增加 OTHER）
 enum ProtoType {
     PROTO_TCP  = 1,
     PROTO_UDP  = 2,
     PROTO_ICMP = 3,
     PROTO_ARP  = 4,
-    PROTO_IPv4 = 5,
+    PROTO_IPv4 = 5,   // 保留，但不再用于统计
     PROTO_IPv6 = 6,
     PROTO_DNS  = 7,
-    PROTO_HTTP = 8
+    PROTO_HTTP = 8,
+    PROTO_OTHER = 9   // 新增：其他协议
 };
 
-// 全局静态变量，用于流水线序号和时间计算
+// 全局变量：当前包的捕获长度
+static uint32_t g_caplen = 0;
+
+// 日志相关
 static uint32_t packet_counter = 0;
 static bool is_first_packet = true;
 static long long start_sec = 0;
 static long long start_usec = 0;
 
-// 用一个临时全局结构体存储当前正在解析的数据包字段
 struct CurrentPacketInfo {
     std::string src_ip;
     std::string dest_ip;
@@ -34,13 +38,14 @@ struct CurrentPacketInfo {
     std::string info_str;
 } cur_pkt;
 
-// 🌟 核心修改 1：提供全局静态日志队列，以及供大盘读取的公开接口
 static std::vector<std::string> log_buffer;
 
+// 供外部获取日志
 const std::vector<std::string>& get_packet_logs() {
     return log_buffer;
 }
 
+// ICMP类型名称
 static const char* icmpTypeName(uint8_t type) {
     switch(type) {
         case 0:  return "Echo Reply";
@@ -54,13 +59,17 @@ static const char* icmpTypeName(uint8_t type) {
 }
 
 // ------------------------------------------------------------
-// 统一入口（改造成：高频投喂大盘，低频抽样塞入滚动队列）
+// 统一入口
 // ------------------------------------------------------------
 void ProtocolParser::parse(const struct pcap_pkthdr* header, const u_char* pkt_data) {
-    uint32_t caplen = header->caplen;
-    if (caplen < sizeof(EthernetHeader)) return;
+    g_caplen = header->caplen;   // 保存捕获长度
 
-    // 🌟 核心修改：初始化第一个包的 pcap 核心时间戳作为基准 0.000000
+    if (g_caplen < sizeof(EthernetHeader)) {
+        std::cerr << "[Parser] 警告：捕获长度小于以太网头大小，跳过此包。" << std::endl;
+        return;
+    }
+
+    // 初始化时间基准
     if (is_first_packet) {
         start_sec = header->ts.tv_sec;
         start_usec = header->ts.tv_usec;
@@ -68,46 +77,42 @@ void ProtocolParser::parse(const struct pcap_pkthdr* header, const u_char* pkt_d
     }
 
     packet_counter++;
-    update_stats_by_protocol(PROTO_IPv4, header->len, "");
 
-    if (packet_counter % 10 != 0) {
-        parseEthernet(pkt_data, caplen);
-        return; 
-    }
-
-    // 🌟 核心修改：利用 pcap 标头自带的时间计算相对时间，跟 Wireshark 绝对一致！
-    long long diff_sec = header->ts.tv_sec - start_sec;
-    long long diff_usec = header->ts.tv_usec - start_usec;
-    double rel_time = diff_sec + (diff_usec / 1000000.0);
-
-    // 2. 清空并初始化当前包的字段信息
+    // 清空当前包信息
     cur_pkt.src_ip = "Unknown";
     cur_pkt.dest_ip = "Unknown";
     cur_pkt.proto_name = "ETHERNET";
     cur_pkt.info_str = "Ethernet Frame";
 
-    // 3. 剥洋葱解析
-    parseEthernet(pkt_data, caplen);
+    // 解析以太网层（内部会继续向上解析）
+    parseEthernet(pkt_data, g_caplen);
 
-    // 4. 一揽子格式化输出（保持不变）
-    std::ostringstream oss;
-    oss << std::left 
-        << std::setw(8)  << packet_counter
-        << std::setw(12) << std::fixed << std::setprecision(6) << rel_time
-        << std::setw(20) << cur_pkt.src_ip
-        << std::setw(20) << cur_pkt.dest_ip
-        << std::setw(10) << cur_pkt.proto_name
-        << std::setw(8)  << header->len   
-        << cur_pkt.info_str;
+    // 每10个包记录一条日志
+    if (packet_counter % 10 == 0) {
+        // 计算相对时间
+        long long diff_sec = header->ts.tv_sec - start_sec;
+        long long diff_usec = header->ts.tv_usec - start_usec;
+        double rel_time = diff_sec + (diff_usec / 1000000.0);
 
-    log_buffer.push_back(oss.str());
-    if (log_buffer.size() > 10) {
-        log_buffer.erase(log_buffer.begin()); 
+        std::ostringstream oss;
+        oss << std::left
+            << std::setw(8)  << packet_counter
+            << std::setw(12) << std::fixed << std::setprecision(6) << rel_time
+            << std::setw(20) << cur_pkt.src_ip
+            << std::setw(20) << cur_pkt.dest_ip
+            << std::setw(10) << cur_pkt.proto_name
+            << std::setw(8)  << g_caplen
+            << cur_pkt.info_str;
+
+        log_buffer.push_back(oss.str());
+        if (log_buffer.size() > 10) {
+            log_buffer.erase(log_buffer.begin());
+        }
     }
 }
 
 // ------------------------------------------------------------
-// 各层解析（保持原样，向 cur_pkt 填充信息即可）
+// 以太网层
 // ------------------------------------------------------------
 void ProtocolParser::parseEthernet(const u_char* data, uint32_t len) {
     if (len < sizeof(EthernetHeader)) return;
@@ -119,26 +124,34 @@ void ProtocolParser::parseEthernet(const u_char* data, uint32_t len) {
     uint32_t remaining = len - sizeof(EthernetHeader);
 
     switch (eth_type) {
-        case 0x0800:
+        case 0x0800:  // IPv4
             cur_pkt.proto_name = "IPv4";
             parseIPv4(next_data, remaining);
             break;
-        case 0x86DD:
+        case 0x86DD:  // IPv6
             cur_pkt.proto_name = "IPv6";
             parseIPv6(next_data, remaining);
             break;
-        case 0x0806:
+        case 0x0806:  // ARP
             cur_pkt.proto_name = "ARP";
             cur_pkt.src_ip = "Who has object?";
             cur_pkt.dest_ip = "Broadcast";
             cur_pkt.info_str = "ARP Request / Reply";
-            update_stats_by_protocol(PROTO_ARP, len, "");
+            // [优化] ARP 直接统计，只此一次
+            update_stats_by_protocol(PROTO_ARP, g_caplen, "");
             break;
         default:
+            cur_pkt.proto_name = "OTHER";
+            cur_pkt.info_str = "Unknown Ethernet Type";
+            // 其他链路层协议归为 OTHER 统计
+            update_stats_by_protocol(PROTO_OTHER, g_caplen, "");
             break;
     }
 }
 
+// ------------------------------------------------------------
+// IPv4 解析
+// ------------------------------------------------------------
 void ProtocolParser::parseIPv4(const u_char* data, uint32_t len) {
     if (len < sizeof(IPv4Header)) return;
 
@@ -152,8 +165,8 @@ void ProtocolParser::parseIPv4(const u_char* data, uint32_t len) {
     cur_pkt.src_ip = ipToString(ip->src_ip);
     cur_pkt.dest_ip = ipToString(ip->dest_ip);
 
-    update_stats_by_protocol(PROTO_IPv4, total_len, cur_pkt.src_ip);
-    update_stats_by_ip(cur_pkt.src_ip, total_len);
+    // IP 排行榜（不影响总包数）
+    update_stats_by_ip(cur_pkt.src_ip, g_caplen);
 
     if (total_len > len) total_len = len;
     if (len < ihl) return;
@@ -161,30 +174,36 @@ void ProtocolParser::parseIPv4(const u_char* data, uint32_t len) {
     const u_char* next_data = data + ihl;
     uint32_t remaining = len - ihl;
 
+    // 根据传输层协议分发，统计由子层负责
     switch (protocol) {
-        case 6:
+        case 6:   // TCP
             cur_pkt.proto_name = "TCP";
             parseTCP(next_data, remaining);
-            update_stats_by_protocol(PROTO_TCP, 0, cur_pkt.src_ip);
             break;
-        case 17:
+        case 17:  // UDP
             cur_pkt.proto_name = "UDP";
             parseUDP(next_data, remaining);
-            update_stats_by_protocol(PROTO_UDP, 0, cur_pkt.src_ip);
             break;
-        case 1:
+        case 1:   // ICMP
             cur_pkt.proto_name = "ICMP";
             parseICMP(next_data, remaining);
-            update_stats_by_protocol(PROTO_ICMP, 0, cur_pkt.src_ip);
             break;
-        default:
-            std::stringstream ss;
-            ss << "IPv4 Protocol " << (int)protocol;
-            cur_pkt.info_str = ss.str();
+        default:   // 其他 IPv4 协议
+            cur_pkt.proto_name = "OTHER";
+            {
+                std::stringstream ss;
+                ss << "IPv4 Protocol " << (int)protocol;
+                cur_pkt.info_str = ss.str();
+            }
+            // [优化] 未知上层协议，统计为 OTHER
+            update_stats_by_protocol(PROTO_OTHER, g_caplen, cur_pkt.src_ip);
             break;
     }
 }
 
+// ------------------------------------------------------------
+// IPv6 解析
+// ------------------------------------------------------------
 void ProtocolParser::parseIPv6(const u_char* data, uint32_t len) {
     if (len < sizeof(IPv6Header)) return;
 
@@ -193,20 +212,37 @@ void ProtocolParser::parseIPv6(const u_char* data, uint32_t len) {
     cur_pkt.src_ip = ipv6ToString(ip6->src_ip);
     cur_pkt.dest_ip = ipv6ToString(ip6->dest_ip);
 
-    update_stats_by_protocol(PROTO_IPv6, 0, cur_pkt.src_ip);
-    update_stats_by_ip(cur_pkt.src_ip, 0);
+    // IP 排行榜
+    update_stats_by_ip(cur_pkt.src_ip, g_caplen);
 
     const u_char* next_data = data + sizeof(IPv6Header);
     uint32_t remaining = len - sizeof(IPv6Header);
 
     switch (next_header) {
-        case 6:  cur_pkt.proto_name = "TCP";  parseTCP(next_data, remaining); break;
-        case 17: cur_pkt.proto_name = "UDP";  parseUDP(next_data, remaining); break;
-        case 1:  cur_pkt.proto_name = "ICMP"; parseICMP(next_data, remaining); break;
-        default: break;
+        case 6:   // TCP
+            cur_pkt.proto_name = "TCP";
+            parseTCP(next_data, remaining);
+            break;
+        case 17:  // UDP
+            cur_pkt.proto_name = "UDP";
+            parseUDP(next_data, remaining);
+            break;
+        case 1:   // ICMP
+            cur_pkt.proto_name = "ICMP";
+            parseICMP(next_data, remaining);
+            break;
+        default:
+            cur_pkt.proto_name = "OTHER";
+            cur_pkt.info_str = "IPv6 Other Header";
+            // [优化] 未知上层，统计为 OTHER
+            update_stats_by_protocol(PROTO_OTHER, g_caplen, cur_pkt.src_ip);
+            break;
     }
 }
 
+// ------------------------------------------------------------
+// TCP 解析
+// ------------------------------------------------------------
 void ProtocolParser::parseTCP(const u_char* data, uint32_t len) {
     if (len < sizeof(TCPHeader)) return;
 
@@ -217,6 +253,7 @@ void ProtocolParser::parseTCP(const u_char* data, uint32_t len) {
 
     if (data_offset < 20 || data_offset > 60) return;
 
+    // 构建信息字符串
     std::stringstream ss;
     ss << src_port << " → " << dest_port << " [";
     if (tcp->flags & 0x02) ss << "SYN ";
@@ -226,21 +263,34 @@ void ProtocolParser::parseTCP(const u_char* data, uint32_t len) {
     ss << "] Seq=" << ntoh32(tcp->seq_num);
     cur_pkt.info_str = ss.str();
 
-    update_stats_by_protocol(PROTO_TCP, 0, "");
+    // 判断是否为应用层协议（DNS/HTTP）
+    int proto_type = PROTO_TCP;   // 默认 TCP
+    const u_char* payload = nullptr;
+    uint32_t payload_len = 0;
 
-    if (len < data_offset) return;
+    if (len > data_offset) {
+        payload = data + data_offset;
+        payload_len = len - data_offset;
 
-    const u_char* payload = data + data_offset;
-    uint32_t payload_len = len - data_offset;
-
-    if (src_port == 53 || dest_port == 53) {
-        cur_pkt.proto_name = "DNS";
-        parseDNS(payload, payload_len);
-    } else if (src_port == 80 || dest_port == 80 || src_port == 443 || dest_port == 443) {
-        parseHTTP(payload, payload_len);
+        if (src_port == 53 || dest_port == 53) {
+            proto_type = PROTO_DNS;
+            cur_pkt.proto_name = "DNS";
+            parseDNS(payload, payload_len);
+        } else if (src_port == 80 || dest_port == 80 ||
+                   src_port == 443 || dest_port == 443) {
+            proto_type = PROTO_HTTP;
+            cur_pkt.proto_name = "HTTP";
+            parseHTTP(payload, payload_len);
+        }
     }
+
+    // [优化] 每个包只统计一次（传输层或应用层）
+    update_stats_by_protocol(proto_type, g_caplen, cur_pkt.src_ip);
 }
 
+// ------------------------------------------------------------
+// UDP 解析
+// ------------------------------------------------------------
 void ProtocolParser::parseUDP(const u_char* data, uint32_t len) {
     if (len < sizeof(UDPHeader)) return;
 
@@ -253,17 +303,23 @@ void ProtocolParser::parseUDP(const u_char* data, uint32_t len) {
     ss << src_port << " → " << dest_port << " Len=" << udp_len;
     cur_pkt.info_str = ss.str();
 
-    update_stats_by_protocol(PROTO_UDP, udp_len, "");
-
+    int proto_type = PROTO_UDP;
     const u_char* payload = data + sizeof(UDPHeader);
     uint32_t payload_len = len - sizeof(UDPHeader);
 
     if (src_port == 53 || dest_port == 53) {
+        proto_type = PROTO_DNS;
         cur_pkt.proto_name = "DNS";
         parseDNS(payload, payload_len);
     }
+
+    // [优化] 统计一次
+    update_stats_by_protocol(proto_type, g_caplen, cur_pkt.src_ip);
 }
 
+// ------------------------------------------------------------
+// ICMP 解析
+// ------------------------------------------------------------
 void ProtocolParser::parseICMP(const u_char* data, uint32_t len) {
     if (len < sizeof(ICMPHeader)) return;
 
@@ -272,9 +328,13 @@ void ProtocolParser::parseICMP(const u_char* data, uint32_t len) {
     ss << "Type=" << (int)icmp->type << " (" << icmpTypeName(icmp->type) << ") Code=" << (int)icmp->code;
     cur_pkt.info_str = ss.str();
 
-    update_stats_by_protocol(PROTO_ICMP, 0, "");
+    // [优化] ICMP 在此统计一次
+    update_stats_by_protocol(PROTO_ICMP, g_caplen, cur_pkt.src_ip);
 }
 
+// ------------------------------------------------------------
+// DNS 解析（仅头部）
+// ------------------------------------------------------------
 void ProtocolParser::parseDNS(const u_char* data, uint32_t len) {
     if (len < sizeof(DNSHeader)) return;
 
@@ -286,31 +346,38 @@ void ProtocolParser::parseDNS(const u_char* data, uint32_t len) {
     std::stringstream ss;
     ss << "Standard query 0x" << std::hex << id << std::dec << " Questions:" << qdcount << " Answers:" << ancount;
     cur_pkt.info_str = ss.str();
-
-    update_stats_by_protocol(PROTO_DNS, 0, "");
+    // 注意：统计已在 TCP/UDP 中完成，这里不再调用
 }
 
+// ------------------------------------------------------------
+// HTTP 解析（仅显示首行）
+// ------------------------------------------------------------
 void ProtocolParser::parseHTTP(const u_char* data, uint32_t len) {
-    if (len == 0) return;
+    if (len == 0) {
+        cur_pkt.info_str = "Empty HTTP payload";
+        return;
+    }
 
-    if (std::strncmp((const char*)data, "GET", 3) == 0 || 
+    if (std::strncmp((const char*)data, "GET", 3) == 0 ||
         std::strncmp((const char*)data, "POST", 4) == 0 ||
         std::strncmp((const char*)data, "HTTP", 4) == 0) {
-        
-        cur_pkt.proto_name = "HTTP";
-        
         std::stringstream ss;
-        for (uint32_t i = 0; i < len && i < 50; ++i) { 
+        for (uint32_t i = 0; i < len && i < 50; ++i) {
             char c = static_cast<char>(data[i]);
-            if (c == '\r' || c == '\n') break; 
+            if (c == '\r' || c == '\n') break;
             if (c >= 32 && c <= 126) ss << c;
             else ss << '.';
         }
         cur_pkt.info_str = ss.str();
-        update_stats_by_protocol(PROTO_HTTP, 0, "");
+    } else {
+        cur_pkt.info_str = "HTTP payload (non-request/response)";
     }
+    // 统计已在 TCP 中完成
 }
 
+// ------------------------------------------------------------
+// 辅助函数（不变）
+// ------------------------------------------------------------
 std::string ProtocolParser::ipToString(uint32_t ip) {
     uint32_t host_ip = ntoh32(ip);
     std::ostringstream oss;
