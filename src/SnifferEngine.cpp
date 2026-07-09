@@ -54,7 +54,7 @@ bool SnifferEngine::startSniffing(int choice, const std::string& filterExpr) {
     std::cout << "\n[OK] 混杂模式引擎启动成功... (Ctrl+C 退出)\n" << std::endl;
 
     // ========================================================================
-    // 🌟 终极修改：干掉死等的 pcap_loop，改用自主控制的主动轮询循环
+    // 干掉死等的 pcap_loop，改用自主控制的主动轮询循环
     // ========================================================================
     int res;
     struct pcap_pkthdr* header;
@@ -72,7 +72,7 @@ bool SnifferEngine::startSniffing(int choice, const std::string& filterExpr) {
         }
         else if (res == 0) {
             // 核心关键：此时网络上没有符合规则的包！超时返回了。
-            // 即使没包，我们也必须主动去“捅”一下同学 C 的统计单例，
+            // 即使没包，我们也必须主动去“捅”一下的统计单例，
             // 询问它：“虽然没抓到包，但时间到 0.5 秒了吗？到了就赶紧给我强制清屏刷新！”
             // 传 PROTO_IPv4(5) 和 0 字节，不会污染原本的数据。
             PacketStats::getInstance().refreshScreen();

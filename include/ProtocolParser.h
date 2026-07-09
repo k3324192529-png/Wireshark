@@ -12,7 +12,6 @@
  * 逐层解析网络数据包：以太网 → IPv4/IPv6 → TCP/UDP/ICMP → DNS/HTTP。
  * 所有结构体使用 #pragma pack(1) 确保内存布局与网络报文完全一致。
  * 
- * 本模块满足项目“网络数据包捕获与协议解析工具”的同学B必做要求：
  * - 定义协议边界结构体
  * - 剥洋葱式多层解析
  * - 大端序转换
@@ -25,7 +24,7 @@ public:
      * @param header  pcap 包头（包含时间戳、捕获长度等信息）
      * @param pkt_data 原始报文数据（从以太网头开始）
      * 
-     * 这是唯一对外暴露的接口，同学A在 packet_handler 中调用即可。
+     * 这是唯一对外暴露的接口，在 packet_handler 中调用即可。
      */
     static void parse(const struct pcap_pkthdr* header, const u_char* pkt_data);
 

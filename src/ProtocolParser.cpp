@@ -9,17 +9,17 @@
 extern void update_stats_by_protocol(int proto_type, uint32_t length, const std::string& src_ip);
 extern void update_stats_by_ip(const std::string& src_ip, uint32_t length);
 
-// 协议类型枚举（与同学C约定，增加 OTHER）
+// 协议类型枚举
 enum ProtoType {
     PROTO_TCP  = 1,
     PROTO_UDP  = 2,
     PROTO_ICMP = 3,
     PROTO_ARP  = 4,
-    PROTO_IPv4 = 5,   // 保留，但不再用于统计
+    PROTO_IPv4 = 5,
     PROTO_IPv6 = 6,
     PROTO_DNS  = 7,
     PROTO_HTTP = 8,
-    PROTO_OTHER = 9   // 新增：其他协议
+    PROTO_OTHER = 9   // 其他协议
 };
 
 // 全局变量：当前包的捕获长度
